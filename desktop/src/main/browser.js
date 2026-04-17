@@ -1,17 +1,19 @@
+// Playwright Firefox context with cookie injection from Electron login session.
 // Cloudflare bypass strategy:
-// 1. Playwright Firefox — Cloudflare treats Firefox far more leniently than Chromium
-// 2. Realistic UA + stealth headers
-// 3. Persistent profile so session/cookies survive between scans
-// 4. All interactive clicks go through human-click.js (bezier CDP path injector)
+//   1. User logs in via real Electron WebContentsView (auth.js) — no automation flags
+//   2. Cookies saved to disk by cookie-store.js
+//   3. Here we inject those cookies before first navigation — session already trusted
+//   4. Firefox UA + stealth headers for all subsequent requests
 const path = require('node:path');
 const { app } = require('electron');
+const { loadCookies, sanitizeForPlaywright } = require('./cookie-store');
 const sessionStore = require('./session-store');
 const { APP_CONFIG } = require('./config');
 const { refreshSessionPresence } = require('./runtime-status');
 const { pushLog } = require('./log-buffer');
 
 let context = null;
-let currentHeadless = null;
+let cookiesInjected = false;
 
 const FIREFOX_UA =
   'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:124.0) Gecko/20100101 Firefox/124.0';
@@ -52,18 +54,30 @@ async function launchFirefox(headless) {
 
 async function getContext(options = {}) {
   const headless = options.headless ?? APP_CONFIG.headless;
-  if (context && currentHeadless === headless) return context;
-  if (context && currentHeadless !== headless) await closeContext();
+  if (context) return context;
 
-  pushLog('info', 'browser_launch', 'Launching Firefox (Cloudflare-safe)');
+  pushLog('info', 'browser_launch', 'Launching Firefox context');
   context = await launchFirefox(headless);
-  currentHeadless = headless;
+  cookiesInjected = false;
   pushLog('info', 'browser_ready', 'Firefox context ready');
   return context;
 }
 
 async function getPage(options = {}) {
   const ctx = await getContext(options);
+
+  // Inject cookies once per context lifetime
+  if (!cookiesInjected) {
+    const saved = loadCookies();
+    if (saved?.length) {
+      await ctx.addCookies(sanitizeForPlaywright(saved));
+      cookiesInjected = true;
+      pushLog('info', 'cookies_injected', `Injected ${saved.length} cookies into Playwright context`);
+    } else {
+      pushLog('warn', 'cookies_missing', 'No saved cookies — open Login first to authenticate');
+    }
+  }
+
   const pages = ctx.pages();
   return pages[0] || ctx.newPage();
 }
@@ -72,7 +86,7 @@ async function closeContext() {
   if (context) {
     try { await context.close(); } catch {}
     context = null;
-    currentHeadless = null;
+    cookiesInjected = false;
   }
 }
 
