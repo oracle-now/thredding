@@ -17,6 +17,13 @@
  * Selector strategy: ThredUp cart items share no stable data-testid attrs.
  * We locate each item by its position in the cart item list, then scope
  * the trash button and timer to that nth item — robust against DOM updates.
+ *
+ * Key facts from DOM inspection (April 2026):
+ *   - Product links use /product/ paths (NOT /listing/)
+ *   - Remove buttons have NO aria-label on the <button> itself; the alt text
+ *     "Remove item from cart" is on the <img> child inside the button
+ *   - Remove buttons do NOT contain <svg>; they contain <img> with trash icon
+ *   - Each cart row root has class containing M2gLnUDHRBK0O1TPAB_T
  */
 
 const { pushLog } = require('./log-buffer');
@@ -43,98 +50,103 @@ async function parseCart(page) {
   ).catch(() => {});
 
   const items = await page.evaluate(() => {
-    // ThredUp renders cart items as <li> or <div> siblings inside the cart list.
-    // We find all nodes that contain a "Reserved for" text node — that's our
-    // most stable anchor since it appears on every timed item.
-    const allEls = Array.from(document.querySelectorAll('*'));
+    // ThredUp renders each cart item in a row div with a known stable class.
+    // Fall back to finding all nodes containing "Reserved for" text if the
+    // stable class is ever renamed.
+    let rows = Array.from(document.querySelectorAll('div.M2gLnUDHRBK0O1TPAB_T'));
 
-    // Find container elements that directly contain "Reserved for" text
-    const itemRoots = allEls.filter(el => {
-      if (el.children.length === 0) return false; // skip leaves
-      const direct = Array.from(el.childNodes)
-        .filter(n => n.nodeType === 3)
-        .map(n => n.textContent.trim())
-        .join(' ');
-      return /Reserved for/i.test(el.textContent) &&
-             el.querySelectorAll('[class*="CartItem"], [class*="cart-item"]').length === 0;
-    });
+    if (!rows.length) {
+      // Fallback: find container elements that contain "Reserved for" text
+      const allEls = Array.from(document.querySelectorAll('*'));
+      const itemRoots = allEls.filter(el => {
+        if (el.children.length === 0) return false;
+        return /Reserved for/i.test(el.textContent) &&
+               el.querySelectorAll('[class*="CartItem"], [class*="cart-item"]').length === 0;
+      });
 
-    // Walk up to find the true item root (the one that also contains an <a> link and a delete btn)
-    function findItemRoot(el) {
-      let cur = el;
-      for (let i = 0; i < 6; i++) {
-        if (!cur.parentElement) break;
-        const hasLink   = cur.querySelector('a[href*="/listing/"], a[href*="/product/"]');
-        const hasDelete = cur.querySelector('button[aria-label*="emove"], button[aria-label*="elete"], button svg');
-        if (hasLink && hasDelete) return cur;
-        cur = cur.parentElement;
+      function findItemRoot(el) {
+        let cur = el;
+        for (let i = 0; i < 6; i++) {
+          if (!cur.parentElement) break;
+          const hasLink   = cur.querySelector('a[href*="/product/"]');
+          const hasDelete = cur.querySelector('button:has(img[alt*="emove"])') ||
+                            cur.querySelector('button img[alt*="emove"]');
+          if (hasLink && hasDelete) return cur;
+          cur = cur.parentElement;
+        }
+        return el;
       }
-      return el;
+
+      const roots = itemRoots.map(findItemRoot);
+      const seen = new Set();
+      rows = roots.filter(r => {
+        if (seen.has(r)) return false;
+        seen.add(r);
+        return true;
+      });
     }
 
-    const roots = itemRoots.map(findItemRoot);
-    // Deduplicate by DOM node
-    const seen = new Set();
-    const unique = roots.filter(r => {
-      if (seen.has(r)) return false;
-      seen.add(r);
-      return true;
-    });
-
-    return unique.map((root, idx) => {
-      // Product URL — prefer /listing/ links, fall back to any <a>
-      const linkEl = root.querySelector('a[href*="/listing/"], a[href*="/product/"]') ||
+    return rows.map((root, idx) => {
+      // Product URL — ThredUp uses /product/ paths
+      const linkEl = root.querySelector('a[href*="/product/"]') ||
                      root.querySelector('a[href]');
       const productUrl = linkEl ? new URL(linkEl.getAttribute('href'), location.origin).href : null;
 
-      // Timer text
-      const timerMatch = root.textContent.match(/(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})/);
-      const rawTimer = timerMatch ? timerMatch[0] : null;
+      // Timer text — the visible time is in span.u\:absolute.u\:left-0
+      // Avoid the invisible ghost span (u:opacity-0) which also contains 00:00:00
+      let rawTimer = null;
+      const visibleTimerEl = root.querySelector('span[class*="absolute"]');
+      if (visibleTimerEl) {
+        const t = visibleTimerEl.textContent.trim();
+        if (TIMER_RE.test(t)) rawTimer = t;
+      }
+      if (!rawTimer) {
+        // Fallback: grab first timer match from full text (may double-capture ghost)
+        const timerMatch = root.textContent.match(/(\d{1,2}:\d{2}:\d{2}|\d{1,2}:\d{2})/);
+        rawTimer = timerMatch ? timerMatch[0] : null;
+      }
 
-      // Title: first meaningful text block
-      const titleEl = root.querySelector('[class*="brand"], [class*="Brand"], [class*="title"], [class*="Title"], strong, b, h2, h3, h4');
+      // Title: brand heading (h3 in ThredUp's cart markup)
+      const titleEl = root.querySelector('h3, h2, h4, [class*="brand"], [class*="Brand"], strong, b');
       const title = titleEl ? titleEl.textContent.trim() : root.textContent.slice(0, 60).trim();
 
       // Price
       const priceEl = root.querySelector('[class*="price"], [class*="Price"]');
       const price = priceEl ? priceEl.textContent.trim().slice(0, 20) : '';
 
-      // Delete button — get its nth-of-type index for a playwright selector
-      const deleteBtn = root.querySelector('button[aria-label*="emove"], button[aria-label*="elete"]') ||
+      // Delete button — ThredUp uses a <button> containing <img alt="Remove item from cart">
+      // The button itself has NO aria-label; target via the img alt text.
+      const deleteBtn = root.querySelector('button:has(img[alt*="Remove"])') ||
                         (() => {
-                          const btns = root.querySelectorAll('button');
-                          // Last button in item is typically the trash
-                          return btns[btns.length - 1] || null;
+                          // :has() may not be supported in older Chromium — manual walk
+                          const btns = Array.from(root.querySelectorAll('button'));
+                          return btns.find(b => {
+                            const img = b.querySelector('img');
+                            return img && /remove/i.test(img.getAttribute('alt') || '');
+                          }) || null;
                         })();
 
-      // Build a unique selector for the delete button using aria-label or position
-      let removeSelector = null;
-      if (deleteBtn) {
-        const label = deleteBtn.getAttribute('aria-label');
-        if (label) {
-          removeSelector = `button[aria-label="${label}"]`;
-        }
-      }
-
+      // Build removeSelector — we use nth-of-type among trash buttons on the page
+      // (resolved after this map, once we know the index)
       return {
         index: idx,
         title,
         productUrl,
         price,
         rawTimer,
-        removeSelector,
+        hasDeleteBtn: !!deleteBtn,
       };
     });
   });
 
-  // Enrich with parsed seconds and index-based fallback selectors
+  // Build per-item removeSelector using nth-match of the img-alt pattern,
+  // which is stable and doesn't rely on aria-label or svg presence.
   return items.map((item, i) => ({
     ...item,
     secondsLeft: parseSeconds(item.rawTimer || ''),
-    // Fallback: nth delete button on page (trash icons are typically the only
-    // icon-only buttons in the cart)
-    removeSelector: item.removeSelector ||
-      `(//button[.//*[local-name()='svg']])[${i + 1}]`,
+    // Playwright CSS :nth-match — selects the (i+1)th remove button on the page
+    // by targeting the <button> that contains an img with alt matching "Remove"
+    removeSelector: `:nth-match(button:has(img[alt*="Remove"]), ${i + 1})`,
   }));
 }
 
