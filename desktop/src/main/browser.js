@@ -1,5 +1,8 @@
-// Uses camoufox for Cloudflare bypass (humanize + Firefox fingerprint)
-// Falls back to Playwright chromium if camoufox is unavailable
+// Cloudflare bypass strategy:
+// 1. Playwright Firefox — Cloudflare treats Firefox far more leniently than Chromium
+// 2. Realistic UA + stealth headers
+// 3. Persistent profile so session/cookies survive between scans
+// 4. All interactive clicks go through human-click.js (bezier CDP path injector)
 const path = require('node:path');
 const { app } = require('electron');
 const sessionStore = require('./session-store');
@@ -10,80 +13,40 @@ const { pushLog } = require('./log-buffer');
 let context = null;
 let currentHeadless = null;
 
+const FIREFOX_UA =
+  'Mozilla/5.0 (Macintosh; Intel Mac OS X 10.15; rv:124.0) Gecko/20100101 Firefox/124.0';
+
+const STEALTH_HEADERS = {
+  'Accept-Language': 'en-US,en;q=0.9',
+  'Accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,image/avif,image/webp,*/*;q=0.8',
+  'sec-fetch-dest':  'document',
+  'sec-fetch-mode':  'navigate',
+  'sec-fetch-site':  'none',
+  'sec-fetch-user':  '?1',
+  'upgrade-insecure-requests': '1',
+};
+
 function ensureProfileDir() {
   let profileDir = sessionStore.getProfileDir();
   if (!profileDir) {
-    profileDir = path.join(app.getPath('userData'), 'playwright-profile');
+    profileDir = path.join(app.getPath('userData'), 'ff-profile');
     sessionStore.saveProfileDir(profileDir);
   }
   refreshSessionPresence();
   return profileDir;
 }
 
-async function launchCamoufox(headless) {
-  // camoufox is a Python package — we shell out to Python to get a CDP endpoint
-  // then connect Playwright to it so the rest of the JS code works unchanged
-  const { spawn } = require('node:child_process');
-  const { chromium } = require('playwright');
-
-  return new Promise((resolve, reject) => {
-    const profileDir = ensureProfileDir();
-    const py = spawn('python3', [
-      '-c',
-      `
-import asyncio, json, sys
-from camoufox.async_api import AsyncCamoufox
-
-async def main():
-    browser = await AsyncCamoufox(
-        headless=${headless ? 'True' : 'False'},
-        humanize=True,
-        persistent_context=True,
-        user_data_dir=${JSON.stringify(profileDir)},
-    ).__aenter__()
-    endpoint = browser.wsEndpoint
-    sys.stdout.write(json.dumps({'ws': endpoint}) + '\\n')
-    sys.stdout.flush()
-    # keep alive until stdin closes
-    await asyncio.get_event_loop().run_in_executor(None, sys.stdin.read)
-    await browser.__aexit__(None, None, None)
-
-asyncio.run(main())
-      `
-    ], { stdio: ['pipe', 'pipe', 'inherit'] });
-
-    let buf = '';
-    py.stdout.on('data', async (chunk) => {
-      buf += chunk.toString();
-      const nl = buf.indexOf('\n');
-      if (nl === -1) return;
-      const line = buf.slice(0, nl);
-      try {
-        const { ws } = JSON.parse(line);
-        pushLog('info', 'camoufox_launched', 'Camoufox CDP endpoint ready', { ws });
-        const browser = await chromium.connectOverCDP(ws);
-        const contexts = browser.contexts();
-        const ctx = contexts[0] || await browser.newContext();
-        ctx._camoufoxProcess = py;
-        resolve(ctx);
-      } catch (e) {
-        reject(e);
-      }
-    });
-
-    py.on('error', reject);
-    py.on('exit', (code) => {
-      if (code !== 0 && code !== null) reject(new Error(`camoufox exited ${code}`));
-    });
-  });
-}
-
-async function launchPlaywright(headless) {
-  const { chromium } = require('playwright');
+async function launchFirefox(headless) {
+  const { firefox } = require('playwright');
   const profileDir = ensureProfileDir();
-  return chromium.launchPersistentContext(profileDir, {
+  return firefox.launchPersistentContext(profileDir, {
     headless,
-    viewport: { width: 1440, height: 980 }
+    viewport:         { width: 1440, height: 900 },
+    userAgent:        FIREFOX_UA,
+    extraHTTPHeaders: STEALTH_HEADERS,
+    timezoneId:       'America/Los_Angeles',
+    locale:           'en-US',
+    slowMo:           headless ? 100 : 0,
   });
 }
 
@@ -92,17 +55,10 @@ async function getContext(options = {}) {
   if (context && currentHeadless === headless) return context;
   if (context && currentHeadless !== headless) await closeContext();
 
-  try {
-    pushLog('info', 'browser_launch', 'Trying camoufox (Cloudflare-safe)');
-    context = await launchCamoufox(headless);
-    pushLog('info', 'browser_ready', 'Camoufox context ready');
-  } catch (e) {
-    pushLog('warn', 'camoufox_fallback', 'Camoufox unavailable, falling back to Playwright', { error: String(e) });
-    context = await launchPlaywright(headless);
-    pushLog('info', 'browser_ready', 'Playwright context ready (fallback)');
-  }
-
+  pushLog('info', 'browser_launch', 'Launching Firefox (Cloudflare-safe)');
+  context = await launchFirefox(headless);
   currentHeadless = headless;
+  pushLog('info', 'browser_ready', 'Firefox context ready');
   return context;
 }
 
@@ -114,11 +70,7 @@ async function getPage(options = {}) {
 
 async function closeContext() {
   if (context) {
-    try {
-      const proc = context._camoufoxProcess;
-      await context.close();
-      if (proc) proc.stdin.end();
-    } catch {}
+    try { await context.close(); } catch {}
     context = null;
     currentHeadless = null;
   }
