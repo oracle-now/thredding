@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <script async src="https://www.googletagmanager.com/gtag/js?id=G-91X543LVHK"></script>
+    <script>
+        window.dataLayer = window.dataLayer || [];
+        function gtag() { dataLayer.push(arguments); }
+        gtag('js', new Date());
+        gtag('config', 'G-91X543LVHK');
+    </script>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Pricing & Balance</title>
+    <link rel="preconnect" href="https://cdn.jsdelivr.net">
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.11.1/font/bootstrap-icons.css">
+    <style>
+        :root {
+            --primary-color: #0072bc;
+            --secondary-color: #005a96;
+            --highlight-color: #f7921e;
+            --dark-color: #212529;
+            --light-color: #f8f9fa;
+        }
+
+        .phone-callout {
+            display: flex;
+            align-items: center;
+            margin-left: auto;
+            background: linear-gradient(135deg, var(--highlight-color), #ff6b00);
+            padding: 0.5rem 1rem;
+            border-radius: 30px;
+            color: white;
+            font-weight: 600;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.2);
+            white-space: nowrap;
+            position: relative;
+            overflow: hidden;
+            animation: pulse 2s infinite;
+            margin-top: -1rem;
+            height: fit-content;
+            align-self: flex-start;
+        }
+
+        .phone-callout::before {
+            content: "";
+            position: absolute;
+            top: 0;
+            left: -100%;
+            width: 100%;
+            height: 100%;
+            background: linear-gradient(90deg, transparent, rgba(255,255,255,0.2), transparent);
+            animation: shine 3s infinite;
+            z-index: 0;
+        }
+
+        .phone-callout-content {
+            position: relative;
+            z-index: 1;
+            display: flex;
+            align-items: center;
+            line-height: 1;
+        }
+
+        .phone-callout-content i { font-size: 1.1rem; display: inline-flex; align-items: center; justify-content: center; vertical-align: middle; }
+        .phone-callout-content i.bi-telephone-fill { margin-right: 0.5rem; }
+        .phone-callout-content i.bi-apple,
+        .phone-callout-content i.bi-currency-dollar,
+        .phone-callout-content i.bi-credit-card { margin-left: 0.4rem; }
+
+        .phone-number-inline {
+            font-size: 1.2rem;
+            font-weight: 800;
+            margin: 0 0.3rem;
+            color: white;
+            text-shadow: 1px 1px 3px rgba(0,0,0,0.3);
+            vertical-align: middle;
+        }
+
+        @keyframes shine { 100% { left: 100%; } }
+        @keyframes pulse {
+            0%   { transform: scale(1); }
+            50%  { transform: scale(1.03); }
+            100% { transform: scale(1); }
+        }
+
+        .btc-heading-container {
+            display: flex;
+            justify-content: space-between;
+            align-items: flex-start;
+            margin-bottom: 1rem;
+            width: 100%;
+            line-height: 1;
+            position: relative;
+        }
+
+        .btc-heading {
+            font-size: 1.6rem;
+            font-weight: 700;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            margin: 0;
+            padding: 0;
+            line-height: 1.2;
+        }
+
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            overflow: hidden;
+            background-color: #f0f2f5;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+        }
+
+        .full-page { height: 100vh; display: flex; flex-direction: column; }
+
+        .top-section {
+            background: var(--primary-color);
+            padding: 1.5rem;
+            color: white;
+            display: flex;
+            gap: 1.75rem;
+            min-height: 250px;
+        }
+
+        .balance-box {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            border-right: 3px solid rgba(255,255,255,0.4);
+            width: 32%;
+            text-align: center;
+            position: relative;
+            height: 100%;
+        }
+
+        .balance-label {
+            font-size: 1.5rem;
+            margin: 0;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+            text-shadow: 0 1px 3px rgba(0,0,0,0.2);
+            text-align: center;
+        }
+
+        /* Shimmer animation for loading state */
+        @keyframes shimmer {
+            0%   { opacity: 0.4; }
+            50%  { opacity: 0.9; }
+            100% { opacity: 0.4; }
+        }
+
+        #balance {
+            font-size: 3.75rem;
+            font-weight: 800;
+            margin: 0.25rem 0;
+            text-shadow: 0 2px 5px rgba(0,0,0,0.25);
+            text-align: center;
+            transition: color 0.3s ease;
+        }
+
+        #balance.loading {
+            animation: shimmer 1.4s ease-in-out infinite;
+            color: rgba(255,255,255,0.45) !important;
+        }
+
+        .balance-note { font-size: 1.2rem; opacity: 0.95; font-weight: 500; text-align: center; }
+
+        .bitcoin-box { display: flex; align-items: center; flex-grow: 1; gap: 1.75rem; }
+
+        .qr-code-container { display: flex; flex-direction: column; align-items: center; justify-content: center; }
+
+        .qr-instructions {
+            color: white;
+            font-size: 0.9rem;
+            text-align: center;
+            background: rgba(255,255,255,0.2);
+            padding: 0.4rem;
+            border-radius: 8px 8px 0 0;
+            width: 200px;
+            margin-bottom: 0;
+            font-weight: 500;
+        }
+
+        .qr-code {
+            background: white;
+            padding: 0.5rem;
+            border-radius: 0 0 12px 12px;
+            height: 180px;
+            width: 200px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-shadow: 0 5px 20px rgba(0,0,0,0.25);
+            cursor: pointer;
+            transition: transform 0.2s;
+            margin-top: 0;
+        }
+
+        .qr-code:hover { transform: scale(1.05); }
+        #btc-qr { max-width: 100%; max-height: 100%; }
+
+        /* QR shimmer placeholder */
+        .qr-placeholder {
+            width: 160px;
+            height: 160px;
+            background: linear-gradient(90deg, #e0e0e0 25%, #f0f0f0 50%, #e0e0e0 75%);
+            background-size: 200% 100%;
+            animation: qr-shimmer 1.4s ease-in-out infinite;
+            border-radius: 4px;
+        }
+
+        @keyframes qr-shimmer {
+            0%   { background-position: 200% 0; }
+            100% { background-position: -200% 0; }
+        }
+
+        .btc-info { flex-grow: 1; }
+
+        .btc-address-container {
+            background: rgba(255,255,255,0.2);
+            border-radius: 8px;
+            padding: 1.25rem;
+            margin-bottom: 1.25rem;
+            font-size: 1rem;
+            text-align: center;
+            font-weight: 500;
+        }
+
+        #btc-address { word-break: break-all; color: white; }
+
+        #btc-address.loading {
+            animation: shimmer 1.4s ease-in-out infinite;
+            color: rgba(255,255,255,0.35) !important;
+        }
+
+        #copy-btn {
+            background: rgba(255,255,255,0.25);
+            border: none;
+            color: white;
+            padding: 1rem;
+            border-radius: 8px;
+            font-size: 1.25rem;
+            transition: all 0.2s;
+            width: 100%;
+            font-weight: 600;
+        }
+
+        #copy-btn:hover { background: rgba(255,255,255,0.35); }
+        #copy-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+
+        .plans-section {
+            flex-grow: 1;
+            display: flex;
+            flex-direction: column;
+            padding: 1rem 1.25rem;
+        }
+
+        .plans-header { text-align: center; margin-bottom: 0.75rem; font-size: 1.8rem; font-weight: 700; color: var(--dark-color); }
+
+        .plans-table { display: flex; flex-grow: 1; gap: 0.85rem; }
+
+        .plan-col {
+            flex: 1;
+            display: flex;
+            flex-direction: column;
+            border: 1px solid #e0e0e0;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 3px 10px rgba(0,0,0,0.07);
+            transition: box-shadow 0.2s ease, transform 0.2s ease;
+        }
+
+        .plan-col:hover { box-shadow: 0 5px 15px rgba(0,0,0,0.15); transform: translateY(-3px); }
+
+        .plan-header { background: var(--primary-color); color: white; padding: 0.9rem 0.6rem; text-align: center; }
+        .popular-plan .plan-header { background: var(--highlight-color); }
+        .lifetime-plan .plan-header { background: #272727; }
+
+        .plan-title { font-size: 1.4rem; margin: 0; font-weight: 700; }
+        .plan-price { font-size: 2.2rem; font-weight: 800; margin: 0.3rem 0; }
+        .plan-period { font-size: 1.1rem; font-weight: 500; }
+
+        .save-badge {
+            display: inline-block;
+            background: rgba(255,255,255,0.25);
+            padding: 0.2rem 0.4rem;
+            border-radius: 4px;
+            font-size: 0.9rem;
+            font-weight: bold;
+        }
+
+        .feature-list { padding: 0.9rem 0.75rem; font-size: 1.25rem; flex-grow: 1; display: flex; flex-direction: column; gap: 0.7rem; }
+        .feature-item { display: flex; align-items: center; gap: 0.5rem; }
+        .feature-icon { color: var(--primary-color); font-size: 1.2rem; }
+        .popular-plan .feature-icon { color: var(--highlight-color); }
+        .lifetime-plan .feature-icon { color: #272727; }
+
+        .plan-action { padding: 0.9rem; border-top: 1px solid #f0f0f0; }
+
+        .btn-buy {
+            width: 100%;
+            font-size: 1.3rem;
+            padding: 0.6rem 0;
+            border-radius: 8px;
+            transition: all 0.2s;
+            font-weight: 700;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .btn-primary { background: var(--primary-color); border-color: var(--primary-color); }
+        .btn-primary:hover { background: var(--secondary-color); border-color: var(--secondary-color); transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.1); }
+
+        .btn-popular { background: var(--highlight-color); border-color: var(--highlight-color); color: white; }
+        .btn-popular:hover { background: #e67300; border-color: #e67300; transform: translateY(-1px); box-shadow: 0 3px 8px rgba(247,146,30,0.3); }
+
+        .btn-lifetime { background: #272727; border-color: #272727; color: white; }
+        .btn-lifetime:hover { background: #000; border-color: #000; transform: translateY(-1px); box-shadow: 0 3px 8px rgba(0,0,0,0.2); }
+
+        .btn-buy:disabled { opacity: 0.6; cursor: not-allowed; transform: none !important; }
+
+        #error-banner {
+            display: none;
+            position: fixed;
+            bottom: 1rem;
+            left: 50%;
+            transform: translateX(-50%);
+            background: rgba(180,0,0,0.92);
+            color: white;
+            border-radius: 6px;
+            padding: 0.75rem 1.25rem;
+            z-index: 100;
+            font-size: 1.1rem;
+            text-align: center;
+            box-shadow: 0 4px 15px rgba(0,0,0,0.2);
+            animation: fadeIn 0.3s;
+            max-width: 90vw;
+        }
+
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translate(-50%, 10px); }
+            to   { opacity: 1; transform: translate(-50%, 0); }
+        }
+
+        .balance-content { margin: auto; }
+        .video-link-wrap { margin-top: auto; padding-bottom: 10px; }
+        .video-link, .video-link-wrap a { text-decoration: none; }
+        .video-link:hover, .video-link-wrap a:hover { text-decoration: underline; }
+    </style>
+
+    <script>
+        const API = "https://server-production-4c65.up.railway.app";
+        const TIMEOUT_MS = 8000;
+        const POLL_INTERVAL_MS = 60000;
+
+        function setLoadingState(loading) {
+            const balanceEl = document.getElementById("balance");
+            const addressEl = document.getElementById("btc-address");
+            const copyBtn   = document.getElementById("copy-btn");
+            const qrImg     = document.getElementById("btc-qr");
+            const qrPlaceholder = document.getElementById("qr-placeholder");
+
+            if (loading) {
+                balanceEl.classList.add("loading");
+                addressEl.classList.add("loading");
+                copyBtn.disabled = true;
+                if (qrPlaceholder) qrPlaceholder.style.display = "block";
+                if (qrImg) qrImg.style.display = "none";
+            } else {
+                balanceEl.classList.remove("loading");
+                addressEl.classList.remove("loading");
+                copyBtn.disabled = false;
+                if (qrPlaceholder) qrPlaceholder.style.display = "none";
+                if (qrImg) qrImg.style.display = "block";
+            }
+        }
+
+        function showError(msg) {
+            const banner = document.getElementById("error-banner");
+            banner.textContent = msg;
+            banner.style.display = "block";
+            setTimeout(() => { banner.style.display = "none"; }, 6000);
+        }
+
+        function updateBalance(amount) {
+            amount = Number(amount);
+            window.balance = amount;
+            const el = document.getElementById("balance");
+            el.textContent = `$${amount.toFixed(2)}`;
+            el.style.color = amount >= 0 ? "#4dff88" : "#ff4d4d";
+        }
+
+        async function fetchWithTimeout(url, options, ms) {
+            const controller = new AbortController();
+            const timer = setTimeout(() => controller.abort(), ms);
+            try {
+                return await fetch(url, { ...options, signal: controller.signal });
+            } finally {
+                clearTimeout(timer);
+            }
+        }
+
+        async function copyBitcoinAddress() {
+            const text = document.getElementById("btc-address").textContent;
+            if (!text || text === "Loading...") return;
+            try {
+                await navigator.clipboard.writeText(text);
+            } catch {
+                // fallback for older browsers
+                const ta = document.createElement("textarea");
+                ta.value = text;
+                document.body.appendChild(ta);
+                ta.select();
+                document.execCommand("copy");
+                document.body.removeChild(ta);
+            }
+            const btn = document.getElementById("copy-btn");
+            const orig = btn.innerHTML;
+            btn.innerHTML = '<i class="bi bi-check"></i> Copied!';
+            setTimeout(() => { btn.innerHTML = orig; }, 2000);
+        }
+
+        function openMempoolExplorer() {
+            const addr = document.getElementById("btc-address").textContent;
+            if (addr && addr !== "Loading...") window.open(`https://mempool.space/address/${addr}`, '_blank');
+        }
+
+        async function user() {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (!urlParams.has('u')) {
+                return alert('You are using an outdated version of this software, please update to the latest version on CartHoarding.com!');
+            }
+
+            setLoadingState(true);
+
+            try {
+                const response = await fetchWithTimeout(
+                    `${API}/u`,
+                    { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: urlParams.toString() },
+                    TIMEOUT_MS
+                );
+
+                if (!response.ok) throw new Error(`Server error (${response.status})`);
+
+                const data = await response.json();
+
+                if (typeof data?.data === 'string') throw new Error(data.data);
+
+                if (typeof data?.data === 'object') {
+                    document.getElementById("btc-address").innerText = data.data.bitcoinAddress;
+                    document.getElementById("btc-qr").src = data.data.qr;
+                    updateBalance(data.data.balance);
+                }
+
+                return data?.data;
+            } catch (error) {
+                const msg = error.name === 'AbortError'
+                    ? 'Request timed out — server may be starting up, retrying shortly...'
+                    : (error.message || String(error));
+                console.error("Error:", error);
+                showError(msg);
+            } finally {
+                setLoadingState(false);
+            }
+        }
+
+        async function selectPlan(plan, price) {
+            const urlParams = new URLSearchParams(window.location.search);
+            if (!urlParams.has('u') || !urlParams.has('v')) {
+                return alert('You are using an outdated version of this software, please update to the latest version on CartHoarding.com!');
+            }
+
+            price = Number(price);
+            if (price > window.balance) return alert('Insufficient balance!');
+            if (!confirm('Really upgrade?')) return;
+            if (window.isMembershipProcessing) return alert('Membership upgrade already in process, please wait...');
+
+            window.isMembershipProcessing = true;
+            const btns = document.querySelectorAll('.btn-buy');
+            btns.forEach(b => b.disabled = true);
+
+            urlParams.set('plan', plan);
+
+            try {
+                const response = await fetchWithTimeout(
+                    `${API}/t`,
+                    { method: "POST", headers: { "Content-Type": "application/x-www-form-urlencoded" }, body: urlParams.toString() },
+                    TIMEOUT_MS
+                );
+
+                if (!response.ok) throw new Error(`Server error (${response.status})`);
+
+                const data = await response.json();
+
+                if (typeof data?.data === 'string') throw new Error(data.data);
+
+                if (typeof data?.data === 'boolean' && data?.data) {
+                    await user();
+                    alert(`${plan} unlimited snipes now activated successfully! $${price} deducted. You may now close this window!`);
+                }
+
+                return data?.data;
+            } catch (error) {
+                const msg = error.name === 'AbortError'
+                    ? 'Request timed out — server may be starting up, please try again.'
+                    : (error.message || String(error));
+                console.error("Error:", error);
+                showError(msg);
+            } finally {
+                window.isMembershipProcessing = false;
+                btns.forEach(b => b.disabled = false);
+            }
+        }
+
+        // Poll only when tab is visible
+        function startPolling() {
+            user();
+            setInterval(() => {
+                if (document.visibilityState === 'visible') user();
+            }, POLL_INTERVAL_MS);
+        }
+
+        // Refresh immediately when user returns to the tab
+        document.addEventListener('visibilitychange', () => {
+            if (document.visibilityState === 'visible') user();
+        });
+
+        document.addEventListener('DOMContentLoaded', startPolling);
+    </script>
+</head>
+
+<body>
+    <div class="full-page">
+        <div class="top-section">
+            <div class="balance-box">
+                <div class="balance-content">
+                    <p class="balance-label">Your Balance</p>
+                    <h2 id="balance" class="loading">$--.--</h2>
+                </div>
+                <div class="video-link-wrap">
+                    <a href="https://www.youtube.com/watch?v=FQzN2hiUf5k" target="_blank" style="color: greenyellow; font-size: 1.25em;">👀 Watch 1-minute how-to send Bitcoin tutorial video 🎥</a>
+                    <br><br>
+                    <a href="https://coinatmradar.com/" target="_blank" style="color: greenyellow; font-size: 1.25em;">🔍 Find A Bitcoin ATM Near You 🏧</a>
+                    <br>
+                    <span style="font-size: 0.95rem; color: yellow;">You can right-click and save QR code image for transfer to your phone!</span>
+                </div>
+            </div>
+
+            <div class="bitcoin-box">
+                <div class="qr-code-container">
+                    <div class="qr-instructions">
+                        <i class="bi bi-phone me-1"></i> Scan QR w/camera or click
+                        <a href="javascript:void(0)" onclick="openMempoolExplorer()" style="color: yellow; text-decoration: none;">status</a> or
+                        <a class="video-link" href="https://www.youtube.com/watch?v=FQzN2hiUf5k" target="_blank" style="color: greenyellow;">👀 video 🎥</a>
+                    </div>
+                    <div class="qr-code" onclick="openMempoolExplorer()" title="Click to view on mempool.space">
+                        <div id="qr-placeholder" class="qr-placeholder"></div>
+                        <img id="btc-qr" src="data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///yH5BAEAAAAALAAAAAABAAEAAAIBRAA7" alt="Bitcoin QR Code" style="display:none; max-width:100%; max-height:100%;">
+                    </div>
+                </div>
+
+                <div class="btc-info">
+                    <div class="btc-heading-container">
+                        <h5 class="btc-heading"><i class="bi bi-currency-bitcoin text-warning"></i> Pay Via Bitcoin</h5>
+                    </div>
+                    <div class="btc-address-container">
+                        <span id="btc-address" class="loading">Connecting to server...</span>
+                    </div>
+                    <button id="copy-btn" class="btn" onclick="copyBitcoinAddress()" type="button" disabled>
+                        <i class="bi bi-clipboard"></i> Copy Bitcoin Address
+                    </button>
+                </div>
+            </div>
+        </div>
+
+        <div class="plans-section">
+            <div class="plans-table">
+                <div class="plan-col popular-plan">
+                    <div class="plan-header">
+                        <h6 class="plan-title">Monthly</h6>
+                        <p class="plan-price">$49.99</p>
+                        <div class="plan-period">per month</div>
+                    </div>
+                    <div class="feature-list">
+                        <div class="feature-item">
+                            <i class="bi bi-check-circle-fill feature-icon"></i>
+                            <span><strong>Unlimited items, zero success fees</strong></span>
+                        </div>
+                    </div>
+                    <div class="plan-action">
+                        <button class="btn btn-buy btn-popular" onclick="selectPlan('Monthly', '49.99')" type="button">Upgrade</button>
+                    </div>
+                </div>
+
+                <div class="plan-col">
+                    <div class="plan-header">
+                        <h6 class="plan-title">Quarterly</h6>
+                        <p class="plan-price">$99.99</p>
+                        <div class="plan-period">for 3 months</div>
+                    </div>
+                    <div class="feature-list">
+                        <div class="feature-item">
+                            <i class="bi bi-check-circle-fill feature-icon"></i>
+                            <span><strong>Unlimited items, zero success fees</strong></span>
+                        </div>
+                    </div>
+                    <div class="plan-action">
+                        <button class="btn btn-buy btn-primary" onclick="selectPlan('Quarterly', '99.99')" type="button">Upgrade</button>
+                    </div>
+                </div>
+
+                <div class="plan-col">
+                    <div class="plan-header">
+                        <h6 class="plan-title">Semi-Annual</h6>
+                        <p class="plan-price">$149.99</p>
+                        <div class="plan-period">for 6 months</div>
+                    </div>
+                    <div class="feature-list">
+                        <div class="feature-item">
+                            <i class="bi bi-check-circle-fill feature-icon"></i>
+                            <span><strong>Unlimited items, zero success fees</strong></span>
+                        </div>
+                    </div>
+                    <div class="plan-action">
+                        <button class="btn btn-buy btn-primary" onclick="selectPlan('Semi-Annual', '149.99')" type="button">Upgrade</button>
+                    </div>
+                </div>
+
+                <div class="plan-col">
+                    <div class="plan-header">
+                        <h6 class="plan-title">Annual</h6>
+                        <p class="plan-price">$199.99</p>
+                        <div class="plan-period">for 1 year</div>
+                    </div>
+                    <div class="feature-list">
+                        <div class="feature-item">
+                            <i class="bi bi-check-circle-fill feature-icon"></i>
+                            <span><strong>Unlimited items, zero success fees</strong></span>
+                        </div>
+                    </div>
+                    <div class="plan-action">
+                        <button class="btn btn-buy btn-primary" onclick="selectPlan('Annual', '199.99')" type="button">Upgrade</button>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div id="error-banner"></div>
+    </div>
+</body>
+
+</html>
