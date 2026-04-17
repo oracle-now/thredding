@@ -1,0 +1,39 @@
+:root {
+  --bg: #111418;
+  --surface: #171b20;
+  --surface-2: #1d232a;
+  --border: #2b3440;
+  --text: #e8edf2;
+  --muted: #9aa7b5;
+  --info: #5aa9ff;
+  --warn: #f4b740;
+  --danger: #ff6b6b;
+  --success: #4cc38a;
+}
+* { box-sizing: border-box; }
+body { margin: 0; background: var(--bg); color: var(--text); font: 14px/1.45 Inter, ui-sans-serif, system-ui, sans-serif; }
+.logs-shell { padding: 16px; }
+.logs-toolbar { display: flex; flex-wrap: wrap; gap: 12px; margin-bottom: 14px; align-items: center; }
+.toolbar-button { border: 1px solid var(--border); background: var(--surface-2); color: var(--text); border-radius: 10px; padding: 8px 12px; font: inherit; cursor: pointer; }
+.toolbar-status { color: var(--muted); font-size: 13px; }
+.health-strip { display: flex; flex-wrap: wrap; gap: 8px; margin-bottom: 14px; }
+.health-chip { border-radius: 999px; padding: 6px 10px; border: 1px solid var(--border); background: var(--surface); font-size: 12px; }
+.health-chip--ok      { background: rgba(76,195,138,.12); color: #82ddb1; }
+.health-chip--warn    { background: rgba(244,183,64,.12); color: #ffd071; }
+.health-chip--neutral { background: var(--surface); color: var(--text); }
+.log-list { display: grid; gap: 10px; }
+.log-entry { background: var(--surface); border: 1px solid var(--border); border-radius: 12px; padding: 12px 14px; }
+.log-entry--info  { border-left: 3px solid var(--info); }
+.log-entry--warn  { border-left: 3px solid var(--warn); }
+.log-entry--error { border-left: 3px solid var(--danger); }
+.log-entry-main { display: flex; flex-wrap: wrap; gap: 8px; align-items: center; }
+.log-time { color: var(--muted); font-variant-numeric: tabular-nums; }
+.log-message { margin-top: 8px; white-space: pre-wrap; word-break: break-word; }
+.log-meta { margin-top: 10px; display: grid; gap: 6px; padding-top: 10px; border-top: 1px solid var(--border); }
+.log-meta-row { display: grid; grid-template-columns: 70px 1fr; gap: 10px; }
+.log-meta-key { color: var(--muted); text-transform: lowercase; }
+.log-badge { display: inline-flex; align-items: center; border-radius: 999px; padding: 3px 8px; font-size: 12px; font-weight: 600; }
+.log-badge--neutral { background: #2b3440;              color: #d8e1ea; }
+.log-badge--success { background: rgba(76,195,138,.16); color: #82ddb1; }
+.log-badge--warn    { background: rgba(244,183,64,.16);  color: #ffd071; }
+.log-badge--danger  { background: rgba(255,107,107,.16); color: #ff9d9d; }

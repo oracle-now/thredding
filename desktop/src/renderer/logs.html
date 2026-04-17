@@ -1,0 +1,22 @@
+<!doctype html>
+<html>
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Thredding Logs</title>
+    <link rel="stylesheet" href="./logs.css" />
+  </head>
+  <body>
+    <main class="logs-shell">
+      <header class="logs-toolbar">
+        <button id="copy-debug-bundle" class="toolbar-button">Copy Debug Bundle</button>
+        <button id="save-debug-bundle" class="toolbar-button">Save Debug Bundle</button>
+        <button id="clear-logs" class="toolbar-button">Clear Logs</button>
+        <span id="toolbar-status" class="toolbar-status"></span>
+      </header>
+      <section id="health-strip" class="health-strip"></section>
+      <section id="log-root" class="log-list"></section>
+    </main>
+    <script src="./logs.js"></script>
+  </body>
+</html>

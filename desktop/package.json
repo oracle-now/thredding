@@ -1,0 +1,14 @@
+{
+  "name": "thredding-desktop",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Electron tray app scaffold for ThredUp cart diagnostics and automation.",
+  "main": "src/main/index.js",
+  "scripts": {
+    "start": "electron ."
+  },
+  "dependencies": {
+    "electron": "^35.0.0",
+    "playwright": "^1.52.0"
+  }
+}
