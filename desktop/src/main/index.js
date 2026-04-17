@@ -35,17 +35,29 @@ function openLogsWindow() {
   return logsWindow;
 }
 
+// Save a text payload to disk via native Save dialog (main-process, no IPC needed)
+async function saveTextFile(payload) {
+  const result = await dialog.showSaveDialog({
+    title: 'Save Debug File',
+    defaultPath: payload.defaultName || 'thredding-debug.txt',
+    filters: [{ name: 'Text Files', extensions: ['txt'] }]
+  });
+  if (result.canceled || !result.filePath) {
+    pushLog('info', 'save_cancelled', 'Save dialog cancelled');
+    return { ok: false, cancelled: true };
+  }
+  await fs.writeFile(result.filePath, payload.text, 'utf8');
+  pushLog('info', 'save_complete', `Debug file saved to ${result.filePath}`);
+  return { ok: true, filePath: result.filePath };
+}
+
 async function registerIpc() {
   ipcMain.handle('logs:getRecent',      async () => getRecentLogs(300));
   ipcMain.handle('logs:clear',          async () => { clearLogs(); return { ok: true }; });
   ipcMain.handle('health:get',          async () => getHealthSnapshot());
   ipcMain.handle('clipboard:writeText', async (_e, text) => { clipboard.writeText(text); return { ok: true }; });
-  ipcMain.handle('debug:saveTextFile',  async (_e, payload) => {
-    const result = await dialog.showSaveDialog({ title: 'Save Debug Bundle', defaultPath: payload.defaultName || 'thredding-debug.txt' });
-    if (result.canceled || !result.filePath) return { ok: false, cancelled: true };
-    await fs.writeFile(result.filePath, payload.text, 'utf8');
-    return { ok: true, filePath: result.filePath };
-  });
+  // Legacy IPC path kept for renderer-triggered saves
+  ipcMain.handle('debug:saveTextFile',  async (_e, payload) => saveTextFile(payload));
 }
 
 async function handleImportFromChrome() {
@@ -53,6 +65,17 @@ async function handleImportFromChrome() {
   const result = await importFromChrome();
   if (result.ok) refreshSessionPresence();
   return result;
+}
+
+async function handleDumpCartDebug() {
+  openLogsWindow();
+  const payload = await dumpCurrentCartDebug();
+  // payload = { text: '...', defaultName: 'thredding-cart-debug-TIMESTAMP.txt' }
+  if (payload && payload.text) {
+    await saveTextFile(payload);
+  } else {
+    pushLog('warn', 'dump_empty', 'Dump returned no content');
+  }
 }
 
 async function bootstrap() {
@@ -64,12 +87,12 @@ async function bootstrap() {
     onOpenProfileFolder:  openProfileFolder,
     onResetSession:       async () => { const r = await resetSessionWithConfirmation(); if (r.ok) await openAuthWindow(); },
     onScanNow:            async () => { openLogsWindow(); await scanNow(); },
-    onDumpCartDebug:      async () => { openLogsWindow(); await dumpCurrentCartDebug(); },
-    onTestAutoRefresh:    testAutoRefresh,
-    onTestProductPageAdd: testProductPageAdd,
-    onTestRemoveReadd:    testRemoveReadd,
-    onStart:              startRunner,
-    onStop:               stopRunner,
+    onDumpCartDebug:      handleDumpCartDebug,
+    onTestAutoRefresh:    async () => { openLogsWindow(); await testAutoRefresh(); },
+    onTestProductPageAdd: async () => { openLogsWindow(); await testProductPageAdd(); },
+    onTestRemoveReadd:    async () => { openLogsWindow(); await testRemoveReadd(); },
+    onStart:              async () => { openLogsWindow(); await startRunner(); },
+    onStop:               async () => { openLogsWindow(); await stopRunner(); },
     onQuit:               () => app.quit()
   });
   pushLog('info', 'app_ready', 'Desktop scaffold initialized');
