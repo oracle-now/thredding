@@ -2,12 +2,21 @@ const { Tray, Menu, nativeImage } = require('electron');
 
 let tray = null;
 
+// 16x16 white circle on transparent background — visible in both light and dark menu bars
+const ICON_B64 =
+  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlz' +
+  'AAALEgAACxIB0t1+/AAAABx0RVh0U29mdHdhcmUAQWRvYmUgRmlyZXdvcmtzIENTNXG14zYAAABY' +
+  'SURBVDiNY/z//z8DJYCJgUIwasCoAaMGjBpAVQNYBg8e/I+LiwsDIyMjAyMDAwMTNptGDRg1YNSA' +
+  'UQNGDRg1gKoGsAwePPgfFxcXBkZGRgZGBgYGJmw2AQAplQ3pGYjH2QAAAABJRU5ErkJggg==';
+
 function createTray(handlers) {
   if (tray) return tray;
-  const blank = nativeImage.createFromDataURL(
-    'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAusB9Wl9wS0AAAAASUVORK5CYII='
-  );
-  tray = new Tray(blank);
+
+  const icon = nativeImage.createFromDataURL(`data:image/png;base64,${ICON_B64}`);
+  // On macOS, template images automatically invert for light/dark menu bars
+  icon.setTemplateImage(true);
+
+  tray = new Tray(icon);
   tray.setToolTip('Thredding Desktop');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Login',            click: () => void handlers.onOpenLogin() },
