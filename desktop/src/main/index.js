@@ -9,6 +9,8 @@ const { openProfileFolder } = require('./open-profile-folder');
 const { resetSessionWithConfirmation } = require('./reset-session');
 const { scanNow, dumpCurrentCartDebug } = require('./diagnostics');
 const { startRunner, stopRunner, testAutoRefresh, testProductPageAdd, testRemoveReadd } = require('./runner');
+const { importFromChrome } = require('./cookie-store');
+const { refreshSessionPresence } = require('./runtime-status');
 
 let logsWindow = null;
 
@@ -46,15 +48,23 @@ async function registerIpc() {
   });
 }
 
+async function handleImportFromChrome() {
+  openLogsWindow();
+  const result = await importFromChrome();
+  if (result.ok) refreshSessionPresence();
+  return result;
+}
+
 async function bootstrap() {
   await registerIpc();
   createTray({
+    onImportFromChrome:   handleImportFromChrome,
     onOpenLogin:          openAuthWindow,
     onOpenLogs:           openLogsWindow,
     onOpenProfileFolder:  openProfileFolder,
     onResetSession:       async () => { const r = await resetSessionWithConfirmation(); if (r.ok) await openAuthWindow(); },
-    onScanNow:            scanNow,
-    onDumpCartDebug:      dumpCurrentCartDebug,
+    onScanNow:            async () => { openLogsWindow(); await scanNow(); },
+    onDumpCartDebug:      async () => { openLogsWindow(); await dumpCurrentCartDebug(); },
     onTestAutoRefresh:    testAutoRefresh,
     onTestProductPageAdd: testProductPageAdd,
     onTestRemoveReadd:    testRemoveReadd,
