@@ -2,22 +2,23 @@ const { Tray, Menu, nativeImage } = require('electron');
 
 let tray = null;
 
-// 16x16 white circle on transparent background — visible in both light and dark menu bars
-const ICON_B64 =
-  'iVBORw0KGgoAAAANSUhEUgAAABAAAAAQCAYAAAAf8/9hAAAABHNCSVQICAgIfAhkiAAAAAlwSFlz' +
-  'AAALEgAACxIB0t1+/AAAABx0RVh0U29mdHdhcmUAQWRvYmUgRmlyZXdvcmtzIENTNXG14zYAAABY' +
-  'SURBVDiNY/z//z8DJYCJgUIwasCoAaMGjBpAVQNYBg8e/I+LiwsDIyMjAyMDAwMTNptGDRg1YNSA' +
-  'UQNGDRg1gKoGsAwePPgfFxcXBkZGRgZGBgYGJmw2AQAplQ3pGYjH2QAAAABJRU5ErkJggg==';
+// Heart icon — 16x16 white on transparent, template image for macOS light/dark menu bar
+const HEART_SVG = `<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16">
+  <path fill="white" d="M8 14s-6-3.9-6-8a4 4 0 0 1 6-3.44A4 4 0 0 1 14 6c0 4.1-6 8-6 8z"/>
+</svg>`;
+
+function heartIcon() {
+  // Encode SVG as data URL for nativeImage
+  const b64 = Buffer.from(HEART_SVG).toString('base64');
+  const img = nativeImage.createFromDataURL(`data:image/svg+xml;base64,${b64}`);
+  img.setTemplateImage(true);
+  return img;
+}
 
 function createTray(handlers) {
   if (tray) return tray;
-
-  const icon = nativeImage.createFromDataURL(`data:image/png;base64,${ICON_B64}`);
-  // On macOS, template images automatically invert for light/dark menu bars
-  icon.setTemplateImage(true);
-
-  tray = new Tray(icon);
-  tray.setToolTip('Thredding Desktop');
+  tray = new Tray(heartIcon());
+  tray.setToolTip('Thredding');
   tray.setContextMenu(Menu.buildFromTemplate([
     { label: 'Open Login',            click: () => void handlers.onOpenLogin() },
     { label: 'Open Logs',             click: () => void handlers.onOpenLogs() },
