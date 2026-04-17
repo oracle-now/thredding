@@ -1,40 +1,78 @@
 /**
  * runner.js
  *
- * Background watcher loop.
+ * Background watcher loop with humanized, adaptive polling.
  *
- * Behaviour:
- *   - Polls the cart every POLL_INTERVAL_MS
- *   - On each tick, parses all items and their timers
- *   - If any item has <= READD_THRESHOLD_SECONDS remaining, fires reAdd()
- *   - Prevents concurrent re-add operations with an in-flight flag
- *   - Backs off after a CF block or repeated failures
- *   - Gracefully stops on stopRunner()
+ * Poll interval is NOT fixed. It scales with urgency and adds random jitter
+ * so the request cadence looks like a person casually checking their cart:
  *
- * Thresholds (conservative defaults — tweak via APP_CONFIG if needed):
- *   POLL_INTERVAL_MS      = 30s  (cart scan frequency)
- *   READD_THRESHOLD_SECS  = 120s (2 min — trigger re-add with comfortable margin)
- *   BACKOFF_AFTER_CF_MS   = 5min (pause after Cloudflare detection)
+ *   Urgency mode    | Base interval | Jitter   | Effective range
+ *   ────────────────┼───────────────┼──────────┼─────────────────
+ *   idle            | 4–8 min       | ±30s     | ~3.5 – 8.5 min
+ *   watching <15min | 90s           | ±20s     | ~70 – 110s
+ *   urgent <5min    | 45s           | ±10s     | ~35 – 55s
+ *   critical <2min  | 20s           | ±5s      | ~15 – 25s
+ *
+ * Rationale:
+ *   - A human doesn't poll on a metronome. Random jitter breaks regularity.
+ *   - When nothing is close to expiring, polling rarely (4–8 min) is
+ *     indistinguishable from a user leaving the cart tab open in the background.
+ *   - As expiry approaches, frequency ramps up naturally — same as a human
+ *     refreshing more often when they know time is short.
+ *   - The re-add sequence itself uses humanClick (bezier mouse paths + CDP
+ *     events with realistic timestamps) so individual actions are human-patterned.
  */
 
 const { getPage } = require('./browser');
 const { parseCart } = require('./cart-parser');
 const { reAdd } = require('./readd');
 const { pushLog } = require('./log-buffer');
-const { setWatcherRunning, markRefreshNow } = require('./runtime-status');
+const { setWatcherRunning } = require('./runtime-status');
 const { APP_CONFIG } = require('./config');
 
-const POLL_INTERVAL_MS     = 30_000;
-const READD_THRESHOLD_SECS = 120;
-const BACKOFF_AFTER_CF_MS  = 5 * 60_000;
-const NAV_OPTS             = { waitUntil: 'domcontentloaded', timeout: 30_000 };
+// ── Timing constants ──────────────────────────────────────────────────────────
+const READD_THRESHOLD_SECS    = 120;         // fire re-add at ≤2 min
+const URGENT_THRESHOLD_SECS   = 300;         // ≤5 min → urgent cadence
+const WATCHING_THRESHOLD_SECS = 15 * 60;     // ≤15 min → watching cadence
+const BACKOFF_AFTER_CF_MS     = 5 * 60_000;  // pause 5 min after CF block
+const MAX_CONSECUTIVE_FAILURES = 5;
+const NAV_OPTS = { waitUntil: 'domcontentloaded', timeout: 30_000 };
 
+// ── Jitter helper ─────────────────────────────────────────────────────────────
+// Returns a random value in [base - spread, base + spread]
+function jitter(baseMs, spreadMs) {
+  return baseMs + Math.round((Math.random() * 2 - 1) * spreadMs);
+}
+
+// ── Adaptive interval ─────────────────────────────────────────────────────────
+// Picks the next poll delay based on how soon the next item expires.
+function nextPollMs(minSecondsLeft) {
+  if (!isFinite(minSecondsLeft) || minSecondsLeft <= 0) {
+    // Idle: cart empty or no timers — check every 4–8 min
+    return jitter((4 + Math.random() * 4) * 60_000, 30_000);
+  }
+  if (minSecondsLeft <= READD_THRESHOLD_SECS) {
+    // Critical: re-add may have just fired, watch closely
+    return jitter(20_000, 5_000);
+  }
+  if (minSecondsLeft <= URGENT_THRESHOLD_SECS) {
+    // Urgent: <5 min remaining
+    return jitter(45_000, 10_000);
+  }
+  if (minSecondsLeft <= WATCHING_THRESHOLD_SECS) {
+    // Watching: <15 min remaining
+    return jitter(90_000, 20_000);
+  }
+  // Relaxed: plenty of time — idle cadence
+  return jitter((4 + Math.random() * 4) * 60_000, 30_000);
+}
+
+// ── State ─────────────────────────────────────────────────────────────────────
 let running      = false;
 let inFlight     = false;
 let stopSignal   = false;
 let pollTimer    = null;
 let consecutiveFailures = 0;
-const MAX_CONSECUTIVE_FAILURES = 5;
 
 // ── Public API ────────────────────────────────────────────────────────────────
 
@@ -47,10 +85,7 @@ async function startRunner() {
   stopSignal = false;
   consecutiveFailures = 0;
   setWatcherRunning(true);
-  pushLog('info', 'runner_started', 'Cart watcher started', {
-    pollIntervalSec: POLL_INTERVAL_MS / 1000,
-    readdThresholdSec: READD_THRESHOLD_SECS,
-  });
+  pushLog('info', 'runner_started', 'Cart watcher started (adaptive humanized polling)');
   schedulePoll(0); // first tick immediately
 }
 
@@ -66,17 +101,17 @@ async function stopRunner() {
 // ── Manual one-shot actions (tray menu) ──────────────────────────────────────
 
 async function testAutoRefresh() {
-  pushLog('info', 'manual_scan', 'Manual scan triggered');
+  pushLog('info', 'manual_scan', 'Manual cart scan triggered');
   return tick();
 }
 
 async function testProductPageAdd() {
-  pushLog('info', 'manual_scan', 'Manual scan triggered (product_page_add path)');
+  pushLog('info', 'manual_scan', 'Manual scan triggered');
   return tick();
 }
 
 async function testRemoveReadd() {
-  pushLog('info', 'manual_readd', 'Manual force re-add triggered — targeting soonest-expiring item');
+  pushLog('info', 'manual_readd', 'Manual force re-add — targeting soonest-expiring item');
   const page = await getPage();
   await page.goto(APP_CONFIG.cartUrl, NAV_OPTS);
   const items = await parseCart(page);
@@ -84,7 +119,6 @@ async function testRemoveReadd() {
     pushLog('warn', 'manual_readd_empty', 'Cart is empty — nothing to re-add');
     return;
   }
-  // Pick the item with least time remaining
   const target = items.slice().sort((a, b) => a.secondsLeft - b.secondsLeft)[0];
   pushLog('info', 'manual_readd_target', `Targeting: ${target.title} (${target.rawTimer} left)`);
   return reAdd(page, target);
@@ -94,16 +128,24 @@ async function testRemoveReadd() {
 
 function schedulePoll(delayMs) {
   if (stopSignal) return;
+  if (delayMs > 0) {
+    const sec = Math.round(delayMs / 1000);
+    const display = sec >= 60 ? `${Math.floor(sec / 60)}m ${sec % 60}s` : `${sec}s`;
+    pushLog('debug', 'runner_next_poll', `Next cart check in ~${display}`);
+  }
   pollTimer = setTimeout(async () => {
-    await tick();
-    if (!stopSignal) schedulePoll(POLL_INTERVAL_MS);
+    const minSecondsLeft = await tick();
+    if (!stopSignal) {
+      schedulePoll(nextPollMs(minSecondsLeft ?? Infinity));
+    }
   }, delayMs);
 }
 
+// Returns the minimum secondsLeft across all cart items (Infinity if empty/unknown)
 async function tick() {
   if (inFlight) {
-    pushLog('debug', 'runner_skip', 'Skipping tick — re-add already in flight');
-    return;
+    pushLog('debug', 'runner_skip', 'Skipping tick — re-add in flight');
+    return Infinity;
   }
 
   let page;
@@ -112,29 +154,28 @@ async function tick() {
     await page.goto(APP_CONFIG.cartUrl, NAV_OPTS);
   } catch (e) {
     consecutiveFailures++;
-    pushLog('error', 'runner_nav_error', 'Failed to load cart page', { error: String(e) });
+    pushLog('error', 'runner_nav_error', 'Failed to load cart', { error: String(e) });
     if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
-      pushLog('error', 'runner_too_many_failures', `${MAX_CONSECUTIVE_FAILURES} consecutive failures — stopping watcher`);
+      pushLog('error', 'runner_too_many_failures',
+        `${MAX_CONSECUTIVE_FAILURES} consecutive failures — stopping watcher`);
       await stopRunner();
     }
-    return;
+    return Infinity;
   }
 
   // Detect CF block
   const title = await page.title();
   if (/just a moment|cloudflare|checking your browser/i.test(title)) {
     consecutiveFailures++;
-    pushLog('warn', 'runner_cf_block', `Cloudflare challenge detected — backing off ${BACKOFF_AFTER_CF_MS / 60000} min`);
+    pushLog('warn', 'runner_cf_block',
+      `Cloudflare detected — backing off ${BACKOFF_AFTER_CF_MS / 60_000} min`);
     if (!stopSignal) {
       clearTimeout(pollTimer);
-      pollTimer = setTimeout(async () => {
-        if (!stopSignal) {
-          consecutiveFailures = 0;
-          schedulePoll(0);
-        }
+      pollTimer = setTimeout(() => {
+        if (!stopSignal) { consecutiveFailures = 0; schedulePoll(0); }
       }, BACKOFF_AFTER_CF_MS);
     }
-    return;
+    return Infinity;
   }
 
   let items;
@@ -143,40 +184,47 @@ async function tick() {
   } catch (e) {
     consecutiveFailures++;
     pushLog('error', 'runner_parse_error', 'Failed to parse cart', { error: String(e) });
-    return;
+    return Infinity;
   }
 
-  consecutiveFailures = 0; // reset on successful parse
+  consecutiveFailures = 0;
 
   if (!items.length) {
     pushLog('info', 'runner_empty_cart', 'Cart is empty — watching');
-    return;
+    return Infinity;
   }
 
-  // Log current state of all items
-  pushLog('info', 'runner_tick', `Cart has ${items.length} item(s)`, {
-    items: items.map(i => ({ title: i.title, timer: i.rawTimer, secondsLeft: i.secondsLeft })),
-  });
+  const validTimers = items.map(i => i.secondsLeft).filter(s => s > 0);
+  const minSecondsLeft = validTimers.length ? Math.min(...validTimers) : Infinity;
+  const minMin = Math.floor(minSecondsLeft / 60);
+  const minSec = Math.round(minSecondsLeft % 60);
 
-  // Find items approaching expiry — sort ascending so we handle soonest first
+  pushLog('info', 'runner_tick',
+    `Cart: ${items.length} item(s) | soonest expiry: ${minMin}m ${minSec}s`, {
+      items: items.map(i => ({ title: i.title, timer: i.rawTimer, secondsLeft: i.secondsLeft })),
+    });
+
+  // Items at or below re-add threshold — handle soonest first, one per tick
   const expiring = items
     .filter(i => i.secondsLeft > 0 && i.secondsLeft <= READD_THRESHOLD_SECS)
     .sort((a, b) => a.secondsLeft - b.secondsLeft);
 
-  if (!expiring.length) return; // nothing urgent
+  if (!expiring.length) return minSecondsLeft;
 
-  // Only process one item per tick to keep operations serialised
   const target = expiring[0];
-  pushLog('info', 'runner_readd_queued', `Item expiring soon: ${target.title} (${target.rawTimer} left)`);
+  pushLog('info', 'runner_readd_queued',
+    `Expiring: "${target.title}" — ${target.rawTimer} left`);
 
   inFlight = true;
   try {
     await reAdd(page, target);
   } catch (e) {
-    pushLog('error', 'runner_readd_error', 'Unexpected error during re-add', { error: String(e) });
+    pushLog('error', 'runner_readd_error', 'Unexpected error in re-add', { error: String(e) });
   } finally {
     inFlight = false;
   }
+
+  return minSecondsLeft;
 }
 
 module.exports = { startRunner, stopRunner, testAutoRefresh, testProductPageAdd, testRemoveReadd };
