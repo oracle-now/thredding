@@ -1,17 +1,24 @@
 /**
- * humanClick — moves the mouse along a realistic bezier path then clicks.
+ * human-click.js
  *
- * Uses CDP Input.dispatchMouseEvent directly so Cloudflare's JS challenge
- * sees properly timestamped, curved, human-like pointer events.
+ * Moves the mouse along a realistic bezier path then dispatches a click.
  *
- * Usage:
- *   const { humanClick } = require('./human-click');
- *   await humanClick(page, selector);           // clicks center of element
- *   await humanClick(page, selector, { from }); // explicit start position
+ * Fix #6: CDP is ONLY available in Chromium. Firefox (which this app uses)
+ * does NOT support CDP sessions — page.context().newCDPSession() always
+ * throws. The original code silently fell back to page.locator().click(),
+ * meaning the bezier path was NEVER actually used.
+ *
+ * New behaviour:
+ *   1. Try CDP first (works if user switches to Chromium in the future).
+ *   2. If CDP is unavailable, fall back to Playwright's mouse.move() API
+ *      which drives real mouse events through Playwright's own input system.
+ *      This is NOT as low-level as raw CDP, but it still produces smooth
+ *      curved pointer events rather than an instant click teleport.
+ *   3. Log clearly which path was taken so it's never ambiguous.
  */
 
 const { emitPath } = require('./path-emitter');
-const { pushLog }  = require('./log-buffer');
+const { pushLog } = require('./log-buffer');
 
 /**
  * Get the bounding box center of a selector on the page.
@@ -32,8 +39,8 @@ async function getCenter(page, selector) {
  * @param {import('playwright').Page} page
  * @param {string} selector
  * @param {object} [options]
- * @param {{x:number,y:number}} [options.from]  - cursor start position (defaults to near page center)
- * @param {number} [options.postClickMs=80]     - dwell after mouseReleased before returning
+ * @param {{x:number,y:number}} [options.from]  - cursor start position
+ * @param {number} [options.postClickMs=80]     - dwell after mouseReleased
  */
 async function humanClick(page, selector, options = {}) {
   const target = await getCenter(page, selector);
@@ -46,60 +53,87 @@ async function humanClick(page, selector, options = {}) {
 
   const samples = emitPath(from, target, { width: target.width });
 
-  let cdp;
+  // ── Attempt 1: CDP (Chromium only) ───────────────────────────────────────
+  let cdp = null;
   try {
     cdp = await page.context().newCDPSession(page);
   } catch {
-    // Firefox doesn't support CDP sessions — fall back to normal click
-    pushLog('warn', 'human_click_fallback', 'CDP unavailable, using playwright click', { selector });
-    await page.locator(selector).first().click();
+    // fix #6: CDP is always unavailable in Firefox. Log once at warn level
+    // (not silently) so the operator knows humanization is running via
+    // Playwright mouse API instead of raw CDP.
+    pushLog('warn', 'human_click_no_cdp',
+      'CDP unavailable (Firefox) — using Playwright mouse.move() path instead', { selector });
+  }
+
+  if (cdp) {
+    // ── CDP path: raw Input.dispatchMouseEvent events (Chromium) ───────────
+    const t0 = Date.now() / 1000;
+
+    for (const s of samples) {
+      await cdp.send('Input.dispatchMouseEvent', {
+        type: 'mouseMoved',
+        x: s.x, y: s.y,
+        timestamp: t0 + s.t / 1000,
+        buttons: 0,
+        pointerType: 'mouse',
+      });
+    }
+
+    const last   = samples[samples.length - 1];
+    const tsClick = t0 + last.t / 1000;
+
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mousePressed',
+      x: last.x, y: last.y,
+      button: 'left', buttons: 1, clickCount: 1,
+      timestamp: tsClick,
+      pointerType: 'mouse',
+    });
+
+    await new Promise(r => setTimeout(r, options.postClickMs ?? (60 + Math.random() * 60)));
+
+    await cdp.send('Input.dispatchMouseEvent', {
+      type: 'mouseReleased',
+      x: last.x, y: last.y,
+      button: 'left', buttons: 0, clickCount: 1,
+      timestamp: tsClick + 0.01,
+      pointerType: 'mouse',
+    });
+
+    await cdp.detach();
+    pushLog('debug', 'human_click_cdp',
+      `Clicked ${selector} via CDP bezier path (${samples.length} samples)`);
     return;
   }
 
-  const t0 = Date.now() / 1000;
+  // ── Fallback path: Playwright mouse.move() (Firefox-compatible) ──────────
+  // fix #6: Drive each bezier sample through Playwright's mouse API.
+  // This goes through the browser's real input pipeline (not a synthetic
+  // JS dispatch), producing curved movement visible to anti-bot heuristics.
+  const mouse = page.mouse;
 
-  // Dispatch move events along the bezier path
+  // Move to start position silently
+  await mouse.move(from.x, from.y);
+
+  // Replay bezier samples
   for (const s of samples) {
-    await cdp.send('Input.dispatchMouseEvent', {
-      type:        'mouseMoved',
-      x:           s.x,
-      y:           s.y,
-      timestamp:   t0 + s.t / 1000,
-      buttons:     0,
-      pointerType: 'mouse',
-    });
+    await mouse.move(s.x, s.y);
+    // Tiny real-time delay per sample to spread events over time
+    if (s.t > 0) {
+      await new Promise(r => setTimeout(r, Math.min(s.t, 8)));
+    }
   }
 
   const last = samples[samples.length - 1];
-  const tsClick = t0 + last.t / 1000;
+  await mouse.move(last.x, last.y);
 
-  await cdp.send('Input.dispatchMouseEvent', {
-    type:        'mousePressed',
-    x:           last.x,
-    y:           last.y,
-    button:      'left',
-    buttons:     1,
-    clickCount:  1,
-    timestamp:   tsClick,
-    pointerType: 'mouse',
-  });
-
-  // Natural dwell between press and release (60-120ms)
+  // Natural press-dwell-release
+  await mouse.down();
   await new Promise(r => setTimeout(r, options.postClickMs ?? (60 + Math.random() * 60)));
+  await mouse.up();
 
-  await cdp.send('Input.dispatchMouseEvent', {
-    type:        'mouseReleased',
-    x:           last.x,
-    y:           last.y,
-    button:      'left',
-    buttons:     0,
-    clickCount:  1,
-    timestamp:   tsClick + 0.01,
-    pointerType: 'mouse',
-  });
-
-  await cdp.detach();
-  pushLog('debug', 'human_click', `Clicked ${selector} via CDP path (${samples.length} samples)`);
+  pushLog('debug', 'human_click_mouse_api',
+    `Clicked ${selector} via Playwright mouse bezier path (${samples.length} samples)`);
 }
 
 module.exports = { humanClick };
